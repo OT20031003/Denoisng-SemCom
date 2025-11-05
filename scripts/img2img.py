@@ -151,7 +151,7 @@ if __name__ == "__main__":
         type=str,
         nargs="?",
         help="dir to write results to",
-        default=f"outputs/nonoise/k={k}"
+        default=f"outputs/k2={k}"
     )
     parser.add_argument(
         "--nosample_outdir",
@@ -231,7 +231,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--intermediate_path",
         type=str, 
-        default=f"./intermediate/k={k}",
+        default=None,
         help="intermediate path"
     )
     parser.add_argument(
@@ -286,7 +286,7 @@ if __name__ == "__main__":
     print(f"z_variance = {z_variances}")
     save_img(z, "outputs/z.png")
     z_copy = z
-    for snr in range(-3, 5, 1):
+    for snr in range(-5, 10, 1):
         # SNR 15dBのときのノイズを乗せる snr = signal/noise
         print(f"--------SNR = {snr}-----------")
         z = z_copy

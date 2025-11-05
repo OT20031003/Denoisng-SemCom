@@ -597,6 +597,64 @@ class DDIMSampler(object):
             
 
         return past_img
+    
+    @torch.no_grad
+    def search_timestep(self,
+               S, #ddim_num_steps 200
+               batch_size,
+               shape,
+               noise_sigma,
+               noise_sigma_predict,
+               conditioning=None,
+               callback=None,
+               normals_sequence=None,
+               img_callback=None,
+               quantize_x0=False,
+               eta=0.,
+               mask=None,
+               x0=None,
+               temperature=1.,
+               noise_dropout=0.,
+               score_corrector=None,
+               corrector_kwargs=None,
+               verbose=True,
+               x_T=None,
+               log_every_t=100,
+               unconditional_guidance_scale=1.,
+               unconditional_conditioning=None,
+               intermediate_path = None, 
+               intermediate_skip = 1,
+               # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
+               snr = None,
+               starttimestep = None,
+               **kwargs
+               ):
+        if conditioning is not None:
+            if isinstance(conditioning, dict):
+                cbs = conditioning[list(conditioning.keys())[0]].shape[0]
+                if cbs != batch_size:
+                    print(f"Warning: Got {cbs} conditionings but batch-size is {batch_size}")
+            else:
+                if conditioning.shape[0] != batch_size:
+                    print(f"Warning: Got {conditioning.shape[0]} conditionings but batch-size is {batch_size}")
+
+        self.make_schedule(ddim_num_steps=S, ddim_eta=eta, verbose=verbose)
+        print(f"ddim.py alphas_cumprod = {self.alphas_cumprod.shape}") #1000
+        C, H, W = shape
+        size = (batch_size, C, H, W)
+
+        device = self.model.betas.device
+        alpha_bar_u = 1/(1 + noise_sigma_predict)
+        print(f"ddim.py, alpha_bar_u = {alpha_bar_u}")
+        alpha_minus = -self.alphas_cumprod
+        start_timesteps = torch.searchsorted(alpha_minus, -alpha_bar_u)
+        start_timesteps *= 1 # ここでタイムステップをいじくる
+        #torch.clamp(start_timesteps, 0, S)
+        if starttimestep != None:
+            start_timesteps = torch.full_like(start_timesteps, starttimestep)
+        
+        
+        return start_timesteps
     @torch.no_grad()
     def p_sample_ddim(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,

@@ -286,7 +286,7 @@ if __name__ == "__main__":
     print(f"z_variance = {z_variances}")
     save_img(z, "outputs/z.png")
     z_copy = z
-    for snr in range(-5, 10, 1):
+    for snr in range(-1, 2, 1):
         # SNR 15dBのときのノイズを乗せる snr = signal/noise
         print(f"--------SNR = {snr}-----------")
         z = z_copy
@@ -308,22 +308,17 @@ if __name__ == "__main__":
         #                 shape= z.shape[1:4],  x_T=z,
         #                 conditioning=cond)
         
-        for s in range(100, 700, 50):
+        for s in range(100, 700, 100):
             """
             開始ステップ数 s
 
             """
-            
-            start_timestep = sampler.search_timestep(S=opt.ddim_steps, batch_size=z.shape[0], 
-                        shape= z.shape[1:4],   noise_sigma=noise_variances_normalize,x_T=z,noise_sigma_predict = noise_variances_predict,
-                        conditioning=cond,intermediate_path=opt.intermediate_path, intermediate_skip=opt.intermediate_skip, snr = snr,starttimestep=None)
-            s = int(start_timestep[0])
             print(f"------------start timestep =  {s}----------")
             os.makedirs(f"{opt.outdir}/starttimestep={s}", exist_ok=True)
             past_samples = sampler.observe_ddim(S=opt.ddim_steps, batch_size=z.shape[0], 
                         shape= z.shape[1:4],   noise_sigma=noise_variances_normalize,x_T=z,noise_sigma_predict = noise_variances_predict,
-                        conditioning=cond,intermediate_path=opt.intermediate_path, intermediate_skip=opt.intermediate_skip, snr = snr,starttimestep=None)
-            
+                        conditioning=cond,intermediate_path=opt.intermediate_path, intermediate_skip=opt.intermediate_skip, snr = snr,starttimestep=s)
+
             if opt.intermediate_path != None:
                 for si, samples in past_samples.items():
                     step, index = si
@@ -341,20 +336,8 @@ if __name__ == "__main__":
             recoverd_img = model.decode_first_stage(past_samples[(1, 0)])
             #print(f"LPIPS = {caluc_lpips(recoverd_img, img.to(device))}")
             print(f"recoverd_img = {recoverd_img.shape}")
-            save_img_individually(recoverd_img, f"{opt.outdir}/starttimestep={int(start_timestep[0])}/output_{snr}.png")
-            break
+            save_img_individually(recoverd_img, f"{opt.outdir}/starttimestep={s}/output_{snr}.png")
         save_img_individually(recoverd_img_no_samp, f"{opt.nosample_outdir}/output_{snr}.png")
         
     
 
-
-    # additionally, save as grid
-    # grid = torch.stack(all_samples, 0)
-    # grid = rearrange(grid, 'n b c h w -> (n b) c h w')
-    # grid = make_grid(grid, nrow=opt.n_samples)
-
-    # # to image
-    # grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
-    # Image.fromarray(grid.astype(np.uint8)).save(os.path.join(outpath, f'{prompt.replace(" ", "-")}.png'))
-
-    # print(f"Your samples are ready and waiting four you here: \n{outpath} \nEnjoy.")
