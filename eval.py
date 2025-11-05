@@ -4,6 +4,7 @@ from skimage.metrics import structural_similarity as ssim
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors # ⭐ 変更点: インポートを追加
 
 # --- New Imports for LPIPS ---
 try:
@@ -166,42 +167,83 @@ def calculate_snr_vs_metric(sent_path, received_path, metric='ssim', resize=(256
     y_vals = [item[1] for item in xy]
     return x_vals, y_vals
 
+# -----------------------------------------------------------------
+# --- ⭐ ここからが修正された関数です ---
+# -----------------------------------------------------------------
 def plot_results(results, title_suffix="", output_filename="snr_vs_metric.png"):
     """
-    Plots the results.
+    Plots the results with distinct colors, markers, and linestyles.
     results: list of tuples (x_vals, y_vals, label)
     """
-    plt.figure(figsize=(10,6))
-    for x_vals, y_vals, label in results:
+    
+    # --- ⭐ 変更点: 色、マーカー、線スタイルのリストを定義 ---
+    
+    # Matplotlibの'tab10'カラーマップ (10色) を取得
+    colors = list(mcolors.TABLEAU_COLORS.values())
+    # 10色以上に対応するため、代表的な色を追加
+    colors.extend(['#000000', '#FF00FF', '#808000', '#00FF00', '#000080']) 
+    
+    # 異なるマーカーのリスト
+    markers = ['o', 'v', 's', '^', 'D', '<', '>', 'p', '*', 'X']
+    
+    # 異なる線スタイルのリスト
+    linestyles = ['-', '--', '-.', ':']
+    # ---------------------------------------------------
+
+    plt.figure(figsize=(10, 6))
+    
+    # --- ⭐ 変更点: enumerateを使用してインデックス(i)を取得 ---
+    for i, (x_vals, y_vals, label) in enumerate(results):
         if not x_vals:
             print(f"Warning: No data to plot for label '{label}'. Skipping.")
             continue
-        plt.plot(x_vals, y_vals, marker='o', linestyle='-', label=label)
+        
+        # --- ⭐ 変更点: リストから色、マーカー、スタイルを循環させて選択 ---
+        
+        # i % len(colors) で、色リストを循環させる
+        color = colors[i % len(colors)]
+        
+        # i % len(markers) で、マーカーリストを循環させる
+        marker = markers[i % len(markers)]
+        
+        # 色が一巡するごと(10個ごと)に線スタイルを変える
+        # これにより、(色1, 線1), (色2, 線1)...(色1, 線2), (色2, 線2)... となる
+        linestyle = linestyles[(i // len(colors)) % len(linestyles)] 
+        
+        plt.plot(x_vals, y_vals, marker=marker, linestyle=linestyle, label=label, color=color, markersize=6)
+        # ----------------------------------------------------------
     
     plt.xlabel("SNR (dB)", fontsize=12)
     plt.ylabel(f"Metric value {title_suffix}", fontsize=12)
     plt.title(f"SNR vs. Metric Comparison {title_suffix}", fontsize=14)
-    plt.legend()
+    
+    # --- ⭐ 変更点: 凡例が多い場合(6個以上)はグラフの外側に表示 ---
+    if len(results) > 6:
+        # bbox_to_anchor=(1.04, 1) でグラフの右上外側を指定
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left", fontsize='small')
+    else:
+        plt.legend()
+         
     plt.grid(True, linestyle='--', alpha=0.6)
+    
+    # tight_layout() でレイアウトを自動調整
     plt.tight_layout()
-    plt.savefig(output_filename)
+    
+    # ⭐ 変更点: savefig で bbox_inches='tight' を指定
+    # これにより、グラフの外側に描画した凡例も画像に収まる
+    plt.savefig(output_filename, bbox_inches='tight')
     print(f"\nPlot saved as '{output_filename}'.")
+# -----------------------------------------------------------------
+# --- ⭐ 修正はここまでです ---
+# -----------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="SNR vs SSIM/MSE/PSNR/LPIPS comparison script")
     parser.add_argument("--sent", "-s", default="./sentimg", help="Directory for 'sent' (original) images")
     
-    # --- ⭐ 変更点: 固定の --recv* を削除 ---
-    # parser.add_argument("--recv", "-r", default="./outputs/k2=0.0", help="Directory for 'received' images (comparison target 1)")
-    # parser.add_argument("--recv2", "-r2", default="./outputs/k=0.0/starttimestep=200", help="Directory for 'received' images (comparison target 2)")
-    # parser.add_argument("--recv3", "-r3", default="./outputs/k=0.0/starttimestep=300", help="Directory for 'received' images (comparison target 3, optional)")
-    # parser.add_argument("--recv4", "-r4", default="./outputs/k=0.0/starttimestep=350", help="Directory for 'received' images (comparison target 4, optional)")
-    
     parser.add_argument("--metric", "-m", choices=["ssim","mse","psnr","lpips","all"], default="ssim", help="Metric to use (ssim, mse, psnr, lpips, or all)")
     parser.add_argument("--resize", type=int, nargs=2, metavar=('W','H'), default=(256,256), help="Resize dimensions for comparison (W H)")
 
-    # --- ⭐ 変更点: 任意の数の「受信ディレクトリ」を位置引数として受け取る ---
-    # nargs='+' は「1つ以上」を意味します
     parser.add_argument("recv_dirs", 
                         nargs='+', 
                         metavar='RECV_DIR', 
@@ -209,23 +251,20 @@ def main():
 
     args = parser.parse_args()
 
-    # --- ⭐ 変更点: recv_dirs リストからラベルを動的に生成 ---
     recv_paths = args.recv_dirs
     labels = [os.path.basename(os.path.normpath(p)) for p in recv_paths]
-    recv_targets = list(zip(recv_paths, labels)) # (path, label) のタプルのリストを作成
+    recv_targets = list(zip(recv_paths, labels)) 
     
     if not recv_targets:
         print("Error: No received directories specified.")
         return
 
-    # --- New logic to handle metric selection ---
     metrics_to_run = []
     if args.metric == "all":
         metrics_to_run = ["ssim", "mse", "psnr", "lpips"]
     else:
         metrics_to_run = [args.metric]
 
-    # --- Initialize LPIPS model if needed ---
     lpips_model = None
     device = None
     if "lpips" in metrics_to_run:
@@ -236,22 +275,16 @@ def main():
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"\nInitializing LPIPS model (AlexNet) on device: {device}")
-        # Initialize the LPIPS model once. Using .eval() for inference mode.
         lpips_model = lpips.LPIPS(net='alex').to(device).eval()
 
 
-    # --- ⭐ 変更点: ループ構造を変更 ---
-    # メトリクスごとにループし、各メトリクス内で全ディレクトリを処理
-    # これにより、'all' の場合にメトリクスごとにグラフが分かれる
-    
     for metric in metrics_to_run:
         print(f"\n==========================================")
         print(f" PROCESSING METRIC: {metric.upper()} ")
         print(f"==========================================")
         
-        metric_results = [] # このメトリクスの結果を格納 (x, y, label)
+        metric_results = [] 
 
-        # --- 指定された各受信ディレクトリに対して計算を実行 ---
         for recv_path, label in recv_targets:
             print(f"\n--- Calculating {metric.upper()} for {label} ---")
             
@@ -260,17 +293,15 @@ def main():
                 lpips_model=lpips_model, device=device
             )
             
-            if x_vals: # データが正常に取得できた場合のみ追加
+            if x_vals: 
                 metric_results.append((x_vals, y_vals, label))
             else:
                 print(f"Warning: No valid data found for {label} with metric {metric}.")
 
-        # --- このメトリクスの全ディレクトリの処理が完了したら、プロット ---
         if not metric_results:
             print(f"\nNo data to plot for metric '{metric}'.")
             continue
 
-        # メトリクスごとに別々のファイル名で保存
         outname = f"snr_vs_{metric}_comparison.png"
         plot_results(metric_results, title_suffix=f"({metric.upper()})", output_filename=outname)
 
@@ -279,10 +310,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-"""
-python eval.py --sent ./sentimg --metric lpips ./outputs/k2=0.0 ./outputs/k=0.0/starttimestep=200 ./outputs/k=0.0/starttimestep=300 ./outputs/k=0.0/starttimestep=350 ./outputs/k=0.0/starttimestep=400 ./outputs/k=0.0/starttimestep=450
-
-
-
-"""

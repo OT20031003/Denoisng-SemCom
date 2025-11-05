@@ -33,7 +33,7 @@ python -m scripts.img2img
 ```
 
 ### Sent image
-![original image](./sentimg/sentimg_1.png)
+![original image](./figure_readme/sentimg_1.png)
 
 ### Latent space
 The input image compressed by AutoEncoder.
@@ -49,7 +49,7 @@ The image by nosampling .
 
 ## Result
 I compared between total timestep.
-![Result on varius total timestep](figure_readme/snr_vs_lpips_comparison_plt_snr_vs_metrics_by_timestep.png)
+![Result on varius total timestep](figure_readme/snr_vs_lpips_comparison.png)
 I searched metric score during sampling
 ![Result on LPIPS](figure_readme/comparison_lpips_samplingeval.png)
 ![Result on PSNR](figure_readme/comparison_psnr_samplingeval.png)
