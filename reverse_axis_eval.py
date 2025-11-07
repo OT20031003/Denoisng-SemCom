@@ -199,16 +199,19 @@ def main():
         for k, v in ans.items():
             ave[k] = v / ans_num[k]
         
-        # 降順 (reverse=True) にソート
+        # 降順 (reverse=True) にソート (元のTime Step t が T -> 0 になるように)
         ave = dict(sorted(ave.items(), key=lambda item: item[0], reverse=True))
         
         X = []
         Y = []
         for k, v in ave.items():
-            X.append(int(k))
+            # X軸: サンプリング回数 = TotalTimestep - 現在の Time Step
+            sampling_steps_taken = timestep - int(k)
+            X.append(sampling_steps_taken) # 0, 10, ..., 500 のように昇順になる
+            
             Y.append(float(v))
             
-        print(f"Data points for this pair (Step, Metric): {list(zip(X, Y))}")
+        print(f"Data points for this pair (Sampling Steps, Metric): {list(zip(X, Y))}")
         
         # --- ⭐ 変更点: スタイルを循環させて適用 ---
         label = f"TotalTimestep = {timestep}, SNR = {snr}"
@@ -221,11 +224,10 @@ def main():
 
     # --- グラフの最終調整と保存 (ループの外) ---
     
-    plt.xlabel("Time Step", fontsize=12)
+    plt.xlabel("Number of Sampling Steps", fontsize=12)
     plt.grid(True, linestyle='--', alpha=0.6)
     plt.ylabel(f"{args.metric.upper()}", fontsize=12)
-    plt.title(f"Time Step vs {args.metric.upper()}", fontsize=14)
-    plt.gca().invert_xaxis() # X軸を反転
+    plt.title(f"Number of Sampling Steps vs {args.metric.upper()}", fontsize=14)
     
     # --- ⭐ 変更点: 凡例が多い場合(6個以上)はグラフの外側に表示 ---
     if len(snr_ts_pairs) > 6:
@@ -255,3 +257,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""
+python reverse_axis_eval.py --snr 3 3 3 3 3 3 -t 200 250 255 300 350 400 -m lpips
+"""

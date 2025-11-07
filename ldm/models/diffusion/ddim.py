@@ -51,6 +51,49 @@ class DDIMSampler(object):
             (1 - self.alphas_cumprod_prev) / (1 - self.alphas_cumprod) * (
                         1 - self.alphas_cumprod / self.alphas_cumprod_prev))
         self.register_buffer('ddim_sigmas_for_original_num_steps', sigmas_for_original_sampling_steps)
+    
+    @torch.no_grad()
+    def forward_diffusion(self,
+               S, #ddim_num_steps 200
+               batch_size,
+               conditioning=None,
+               x = None,
+               eta=0.,
+               verbose=True,
+               timestep = 0,
+               **kwargs
+               ):
+        assert(x != None)
+        if conditioning is not None:
+            if isinstance(conditioning, dict):
+                cbs = conditioning[list(conditioning.keys())[0]].shape[0]
+                if cbs != batch_size:
+                    print(f"Warning: Got {cbs} conditionings but batch-size is {batch_size}")
+            else:
+                if conditioning.shape[0] != batch_size:
+                    print(f"Warning: Got {conditioning.shape[0]} conditionings but batch-size is {batch_size}")
+
+        self.make_schedule(ddim_num_steps=S, ddim_eta=eta, verbose=verbose)
+        
+        # 指定されたtimestepの alpha_bar を取得 (これはスカラー)
+        # self.alphas_cumprod は make_schedule によってモデルと同じデバイスに配置済み
+        alpha_t_bar = self.alphas_cumprod[timestep] 
+
+        # --- 修正点 ---
+
+        # 1. torch.randn_like を使い、x と同じ形状・デバイスでガウスノイズを生成
+        epsilon = torch.randn_like(x) 
+        
+        # 2. (推奨) 係数を [1, 1, 1, 1] の形状に変形して安全にブロードキャスト
+        #    view(-1, 1, 1, 1) は、バッチ処理（batch_size > 1）の場合に重要です
+        #    (self.alphas_cumprod[timestep]はスカラーなので、view(1, 1, 1, 1)でもOK)
+        sqrt_alpha_t_bar = torch.sqrt(alpha_t_bar).view(1, 1, 1, 1)
+        sqrt_one_minus_alpha_t_bar = torch.sqrt(1.0 - alpha_t_bar).view(1, 1, 1, 1)
+
+        # 3. ノイズを加える (x_t = sqrt(alpha_bar_t) * x_0 + sqrt(1 - alpha_bar_t) * epsilon)
+        #    係数が既にxと同じデバイスにあるので .to("cuda") は不要
+        return sqrt_alpha_t_bar * x + sqrt_one_minus_alpha_t_bar * epsilon
+        
 
     @torch.no_grad()
     def sample(self,
@@ -281,6 +324,126 @@ class DDIMSampler(object):
                 #print(f"save figure")
         return img
     
+    @torch.no_grad
+    def jointdiffusion_ddim_sampling(self,
+               S, #ddim_num_steps 200
+               batch_size,
+               shape,
+             
+               noise_sigma_predict,
+               conditioning=None,
+               callback=None,
+               normals_sequence=None,
+               img_callback=None,
+               quantize_x0=False,
+               eta=0.,
+               mask=None,
+               x0=None,
+               temperature=1.,
+               noise_dropout=0.,
+               score_corrector=None,
+               corrector_kwargs=None,
+               verbose=True,
+               x_T=None,
+               log_every_t=100,
+               unconditional_guidance_scale=1.,
+               unconditional_conditioning=None,
+               intermediate_path = None, 
+               intermediate_skip = 1,
+               # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
+               snr = None,
+               added_timestep = 0, 
+               **kwargs
+               ):
+        if conditioning is not None:
+            if isinstance(conditioning, dict):
+                cbs = conditioning[list(conditioning.keys())[0]].shape[0]
+                if cbs != batch_size:
+                    print(f"Warning: Got {cbs} conditionings but batch-size is {batch_size}")
+            else:
+                if conditioning.shape[0] != batch_size:
+                    print(f"Warning: Got {conditioning.shape[0]} conditionings but batch-size is {batch_size}")
+
+        self.make_schedule(ddim_num_steps=S, ddim_eta=eta, verbose=verbose)
+        print(f"ddim.py alphas_cumprod = {self.alphas_cumprod.shape}") #1000
+        C, H, W = shape
+        size = (batch_size, C, H, W)
+        alpha_bar_t = self.alphas_cumprod[added_timestep] 
+
+        device = self.model.betas.device
+        alpha_bar_u = 1/((torch.sqrt(1 - alpha_bar_t) + torch.sqrt(noise_sigma_predict))/torch.sqrt(alpha_bar_t)**2 + 1)
+        print(f"ddim.py, alpha_bar_u = {alpha_bar_u}")
+        alpha_minus = -self.alphas_cumprod
+        start_timesteps = torch.searchsorted(alpha_minus, -alpha_bar_u)
+        start_timesteps *= 1 # ここでタイムステップをいじくる
+        #torch.clamp(start_timesteps, 0, S)
+        
+        # alphas
+        #indiceからタイムステップ
+        print(f"ddim.py start_timesteps after clamp S = {S} : {start_timesteps}")
+        results = []
+        img = x_T.to(device)
+        maxind = start_timesteps.max().item()
+        time_range = reversed(range(0, maxind))
+        iterator = tqdm(time_range, desc='My Sampling')
+        for i, step in enumerate(iterator):
+            # 現在のステップが、バッチ内の各画像の開始タイムステップ以下であるかどうかのマスクを作成
+            # これにより、まだサンプリングが始まっていない画像をスキップできる
+            active_mask = (start_timesteps >= step).view(-1, 1, 1, 1)
+
+            # ts (タイムステップ) はバッチ全体分を用意
+            ts = torch.full((batch_size,), step, device=device, dtype=torch.long)
+            
+            # indexはスケジュール配列を参照するためのもの。現在のループ回数から計算
+            # self.ddim_timestepsはmake_scheduleで作成される長さSの配列
+            # stepに対応するindexを探す
+            time_idx_tensor = torch.where(torch.from_numpy(self.ddim_timesteps).to(device) == step)[0]
+            if time_idx_tensor.numel() == 0:
+                # もし現在のstepがスケジュールになければスキップ (補間なども可能)
+                continue
+            index = time_idx_tensor.item()
+
+
+            # p_sample_ddimをバッチ全体に対して一度だけ呼び出す
+            outs = self.p_sample_ddim(img, conditioning, ts, index, # 修正: indexを追加
+                                    unconditional_guidance_scale=unconditional_guidance_scale,
+                                    unconditional_conditioning=unconditional_conditioning)
+            img_prev, pred_x0 = outs
+
+            # active_maskがTrueの画像だけを、計算結果で更新する
+            img = torch.where(active_mask, img_prev, img)
+            #print(f"step = {step}, index = {index}")
+            
+            if intermediate_path != None and index % intermediate_skip == 0:
+                #TODO 途中結果を保存
+                
+                decoded_img = self.model.decode_first_stage(pred_x0)
+                
+                # VAEのデコーダ出力は [-1, 1] の範囲なので、[0, 1] にスケーリングする
+                # decoded_img = (decoded_img + 1.0) / 2.0
+                # decoded_img = torch.clamp(decoded_img, min=0.0, max=1.0)
+
+                # バッチ内の各画像を個別に保存
+                batch_size = decoded_img.shape[0]
+                for i in range(batch_size):
+                    # ファイル名をステップ番号と画像インデックスで一意に決定
+                    # 例: /path/to/intermediate/step_0180_img_00.png
+                    target_dir = os.path.join(intermediate_path, str(snr), str(i))
+                    
+                    # 2. ディレクトリが存在しなければ再帰的に作成 (exist_ok=True)
+                    os.makedirs(target_dir, exist_ok=True)
+                    
+                    # 3. ファイル名を決定 (ステップ番号)
+                    #    例: step_0436.png
+                    file_name = f"step_{step:04d}.png"
+                    
+                    # 4. 最終的なファイルパス
+                    img_path = os.path.join(target_dir, file_name)
+                    
+                    # torchvision.utils.save_image を使って保存
+                    vutil.save_image(decoded_img[i], img_path)
+                #print(f"save figure")
+        return img
 
     @torch.no_grad
     def onestep_sampling(self,

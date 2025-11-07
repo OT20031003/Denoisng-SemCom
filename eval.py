@@ -310,3 +310,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""
+python eval.py --metric psnr ./outputs/jointdiffusion/t=0 ./outputs/jointdiffusion/t=150
+"""
