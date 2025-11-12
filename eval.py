@@ -312,7 +312,7 @@ if __name__ == "__main__":
     main()
 
 """
-python eval.py --metric ssim  ./outputs/jointdiffusion/t=0 ./outputs/jointdiffusion/t=50  ./outputs/jointdiffusion/t=150  
+python eval.py --metric lpips  ./outputs/jointdiffusion/t=0 outputs/MIMOdiffusion/nonoisenosample outputs/MIMOdiffusion/dynamic outputs/MIMOdiffusion/t=100 outputs/MIMOdiffusion/t=200
 
 
 """
