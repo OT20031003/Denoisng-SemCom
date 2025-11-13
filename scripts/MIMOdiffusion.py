@@ -149,7 +149,10 @@ def make_pilot(tau_p, K, device, dtype):
     return Q_pilot
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    t = None # 固定タイムステップ
+    t = 50 # 固定タイムステップ
+    K = 4
+    M = 4
+    tau_p = 20 # taup >= Kは必須。M >= にすると推定制度アップ
     parser.add_argument(
         "--prompt",
         type=str,
@@ -163,7 +166,7 @@ if __name__ == "__main__":
         type=str,
         nargs="?",
         help="dir to write results to",
-        default=f"outputs/MIMOdiffusion/t={t}"
+        default=f"outputs/MIMOdiffusion/M={M}/t={t}"
     )
     
     parser.add_argument(
@@ -289,9 +292,7 @@ if __name__ == "__main__":
     remove_png(opt.outdir)
     eps = 0.0000001
     img = load_images_as_tensors(opt.input_path)
-    K = 4
-    M = 10
-    tau_p = 20 # taup >= Kは必須。M >= にすると推定制度アップ
+    
 
     batch_size = img.shape[0]
 
