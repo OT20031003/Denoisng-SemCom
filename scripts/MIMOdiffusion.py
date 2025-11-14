@@ -149,10 +149,11 @@ def make_pilot(tau_p, K, device, dtype):
     return Q_pilot
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    t = 50 # 固定タイムステップ
-    K = 4
-    M = 4
-    tau_p = 20 # taup >= Kは必須。M >= にすると推定制度アップ
+    t = None # 固定タイムステップ
+    K = 64
+    M = 64
+    tau_p = K # taup >= Kは必須。M >= にすると推定制度アップ
+    # python -m scripts.MIMOdiffusion > log_MIMO_dynamic_tau=1_M=64_K=1.txt
     parser.add_argument(
         "--prompt",
         type=str,
@@ -166,7 +167,7 @@ if __name__ == "__main__":
         type=str,
         nargs="?",
         help="dir to write results to",
-        default=f"outputs/MIMOdiffusion/M={M}/t={t}"
+        default=f"outputs/MIMOdiffusion/M={M}/K={K}/t={t}"
     )
     
     parser.add_argument(
@@ -174,7 +175,7 @@ if __name__ == "__main__":
         type=str,
         nargs="?",
         help="dir to write results to",
-        default=f"outputs/MIMOdiffusion/nonoisenosample"
+        default=f"outputs/MIMOdiffusion/M={M}/K={K}/nonoisenosample"
     )
 
     parser.add_argument(
@@ -261,7 +262,7 @@ if __name__ == "__main__":
         os.makedirs(opt.intermediate_path, exist_ok=True)
         print(f"{opt.intermediate_path} is created new")
     if t == None or t <0:
-        opt.outdir = "outputs/MIMOdiffusion/dynamic"
+        opt.outdir = f"outputs/MIMOdiffusion/M={M}/K={K}/dynamic"
     config = OmegaConf.load("configs/latent-diffusion/txt2img-1p4B-eval.yaml")  # TODO: Optionally download from same location as ckpt and chnage this logic
     # ldm.modules.diffusion.ddpmをロード
     model = load_model_from_config(config, "models/ldm/text2img-large/model.ckpt")  # TODO: check path
@@ -480,6 +481,7 @@ if __name__ == "__main__":
         print(f"************")
         # Z_H_Z_k は (B, K) のテンソルとして表示
         print(f"inv_Z_H_Z_k (shape: {inv_Z_H_Z_k.shape}) = {inv_Z_H_Z_k}")
+        print(f"inv_Z_H_Z_k.mean (expected to be = {1/(M-K+eps)}) = {torch.mean(inv_Z_H_Z_k, dim=(0, 1))}")
         # Var は (B, K) のテンソルとして表示
         print(f"Var (shape: {Var.shape}) = {Var}")
         print(f"***********")

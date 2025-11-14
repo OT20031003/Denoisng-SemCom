@@ -312,7 +312,7 @@ if __name__ == "__main__":
     main()
 
 """
-python eval.py --metric lpips outputs/MIMOdiffusion/nonoisenosample outputs/MIMOdiffusion/M=4/dynamic  outputs/MIMOdiffusion/M=4/t=50  outputs/MIMOdiffusion/M=4/t=200 
+python eval.py --metric lpips outputs/MIMOdiffusion/nonoisenosample outputs/MIMOdiffusion/dynamic  
 
 
 """
